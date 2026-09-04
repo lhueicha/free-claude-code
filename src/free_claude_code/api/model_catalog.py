@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from free_claude_code.api.telemetry import telemetry
 from free_claude_code.application.ports import RequestRuntimePort
 from free_claude_code.config.model_refs import configured_chat_model_refs
 from free_claude_code.config.settings import Settings
@@ -143,9 +144,43 @@ def build_models_list_response(
 def _build_claude_models_response(
     settings: Settings, runtime: RequestRuntimePort
 ) -> ModelsListResponse:
-    """Preserve the established Claude-compatible catalog exactly."""
+    """Preserve the established Claude-compatible catalog with Enrutador as primary."""
     models: list[ModelResponse] = []
     seen: set[str] = set()
+
+    # Expose unified Enrutador models first so client dropdowns show them cleanly
+    _append_unique_model(
+        models,
+        seen,
+        ModelResponse(
+            id="enrutador-auto",
+            display_name="Enrutador Inteligente (Auto SOTA)",
+            created_at="2026-09-04T00:00:00Z",
+            provider_model_ref="enrutador-auto",
+            supports_reasoning=True,
+            context_window_tokens=2000000,
+        ),
+    )
+    _append_unique_model(
+        models,
+        seen,
+        ModelResponse(
+            id="enrutador",
+            display_name="Enrutador (Modelo Activo)",
+            created_at="2026-09-04T00:00:00Z",
+            provider_model_ref="enrutador",
+            supports_reasoning=True,
+            context_window_tokens=2000000,
+        ),
+    )
+
+    if telemetry.current_model:
+        _append_provider_model_variants(
+            models,
+            seen,
+            telemetry.current_model,
+            supports_thinking=True,
+        )
 
     for ref in configured_chat_model_refs(settings):
         model_info = runtime.cached_model_info(ref.provider_id, ref.model_id)
@@ -183,7 +218,24 @@ def _build_direct_models_response(
     *,
     view: ModelCatalogView,
 ) -> ModelsListResponse:
-    models: list[ModelResponse] = []
+    models: list[ModelResponse] = [
+        ModelResponse(
+            id="enrutador-auto",
+            display_name="Enrutador Inteligente (Auto SOTA)",
+            created_at=DISCOVERED_MODEL_CREATED_AT,
+            provider_model_ref="enrutador-auto",
+            supports_reasoning=True,
+            context_window_tokens=2000000,
+        ),
+        ModelResponse(
+            id="enrutador",
+            display_name="Enrutador (Modelo Activo)",
+            created_at=DISCOVERED_MODEL_CREATED_AT,
+            provider_model_ref="enrutador",
+            supports_reasoning=True,
+            context_window_tokens=2000000,
+        ),
+    ]
     timeout_seconds = (
         _responses_inference_idle_timeout_seconds(settings.provider_progress_timeout)
         if view is ModelCatalogView.RESPONSES

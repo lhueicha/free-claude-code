@@ -1,40 +1,90 @@
+const PROVIDER_API_PORTALS = {
+  nvidia_nim: "https://build.nvidia.com/settings/api-keys",
+  open_router: "https://openrouter.ai/keys",
+  groq: "https://console.groq.com/keys",
+  cerebras: "https://cloud.cerebras.ai/",
+  gemini: "https://aistudio.google.com/app/apikey",
+  deepseek: "https://platform.deepseek.com/api_keys",
+  github_models: "https://github.com/settings/tokens",
+  xai: "https://console.x.ai/team/default/api-keys",
+  mistral: "https://console.mistral.ai/api-keys/",
+  together: "https://api.together.ai/settings/api-keys",
+  sambanova: "https://cloud.sambanova.ai/apis",
+  fireworks: "https://fireworks.ai/api-keys",
+  novita: "https://novita.ai/settings/key-management",
+  cloudflare: "https://dash.cloudflare.com/",
+  huggingface: "https://huggingface.co/settings/tokens",
+  cohere: "https://dashboard.cohere.com/api-keys",
+  minimax: "https://platform.minimax.io/user-center/basic-information/interface-key",
+  kimi: "https://platform.moonshot.cn/console/api-keys",
+  ollama: "https://ollama.com",
+  lmstudio: "http://localhost:1234",
+  llamacpp: "http://localhost:8080",
+};
+
 const state = {
   config: null,
   fields: new Map(),
   modelOptions: [],
   modelComboboxes: new Set(),
   authPollers: new Map(),
-  activeView: window.location.pathname.startsWith("/admin/chat") ? "chat" : "providers",
+  activeView: window.location.pathname.startsWith("/admin/chat") ? "chat" : "pipeline",
 };
 
 const MASKED_SECRET = "********";
 const NULL_VALUE = "__FCC_NULL__";
 const VIEW_GROUPS = [
   {
+    id: "pipeline",
+    icon: "⚡",
+    label: "Tuberías & Métricas",
+    subtitle: "Telemetría y tráfico en vivo",
+    title: "Sistema de Tuberías y Telemetría en Tiempo Real",
+    sections: [],
+    containerId: "pipelineRoot",
+  },
+  {
     id: "providers",
-    label: "Providers",
-    title: "Providers",
+    icon: "🔑",
+    label: "Proveedores",
+    subtitle: "API Keys y Servidores Locales",
+    title: "Gestión de Proveedores de Tokens",
     sections: ["providers", "runtime"],
     containerId: "providersSections",
   },
   {
     id: "model_config",
-    label: "Model Config",
-    title: "Model Config",
+    icon: "🧠",
+    label: "Modelos & Rutas",
+    subtitle: "Asignación de IA por tarea",
+    title: "Configuración de Modelos y Rutas de IA",
     sections: ["models", "reasoning", "web_tools"],
     containerId: "modelConfigSections",
   },
   {
+    id: "integrations",
+    icon: "🔌",
+    label: "Hermes & ChatGPT",
+    subtitle: "Conexión de apps al puerto :8082",
+    title: "Guía de Conexión para Clientes y Agentes",
+    sections: [],
+    containerId: "integrationsRoot",
+  },
+  {
     id: "messaging",
-    label: "Messaging",
-    title: "Messaging",
+    icon: "💬",
+    label: "Mensajería",
+    subtitle: "Bots Telegram, Discord y Voz",
+    title: "Configuración de Bots y Mensajería",
     sections: ["messaging", "voice"],
     containerId: "messagingSections",
   },
   {
     id: "chat",
-    label: "Chat Sessions",
-    title: "Chat Sessions",
+    icon: "🧪",
+    label: "Chat de Prueba",
+    subtitle: "Consola de prueba en vivo",
+    title: "Consola Interactiva de Chat",
     sections: [],
     containerId: "chatRoot",
   },
@@ -108,6 +158,9 @@ async function load() {
   ]);
   updateDirtyState();
   showMessage("");
+  if (state.activeView === "pipeline" && window.PipelineDashboard) {
+    window.PipelineDashboard.initialize();
+  }
 }
 
 function renderNav() {
@@ -118,7 +171,29 @@ function renderNav() {
     button.type = "button";
     button.className = `nav-link${index === 0 ? " active" : ""}`;
     button.dataset.view = view.id;
-    button.textContent = view.label;
+
+    const iconSpan = document.createElement("span");
+    iconSpan.className = "nav-icon";
+    iconSpan.textContent = view.icon || "⚡";
+    button.appendChild(iconSpan);
+
+    const textWrap = document.createElement("div");
+    textWrap.className = "nav-text-wrap";
+
+    const labelSpan = document.createElement("span");
+    labelSpan.className = "nav-label";
+    labelSpan.textContent = view.label;
+    textWrap.appendChild(labelSpan);
+
+    if (view.subtitle) {
+      const subSpan = document.createElement("span");
+      subSpan.className = "nav-sublabel";
+      subSpan.textContent = view.subtitle;
+      textWrap.appendChild(subSpan);
+    }
+
+    button.appendChild(textWrap);
+
     if (index === 0) {
       button.setAttribute("aria-current", "page");
     }
@@ -163,6 +238,9 @@ function setActiveView(viewId, { scroll = false } = {}) {
   if (chatActive && window.ChatSessions) {
     window.ChatSessions.activate(window.location.pathname);
   }
+  if (activeView.id === "pipeline" && window.PipelineDashboard) {
+    window.PipelineDashboard.initialize();
+  }
 }
 
 function navigateToView(viewId) {
@@ -176,75 +254,228 @@ function navigateToView(viewId) {
   setActiveView(viewId, { scroll: true });
 }
 
+function sortProviders(providers) {
+  return [...providers].sort((a, b) => {
+    const aConf = ["configured", "reachable", "running", "connected"].includes(a.status);
+    const bConf = ["configured", "reachable", "running", "connected"].includes(b.status);
+    if (aConf && !bConf) return -1;
+    if (!aConf && bConf) return 1;
+    const aName = a.display_name || a.provider_id;
+    const bName = b.display_name || b.provider_id;
+    return aName.localeCompare(bName);
+  });
+}
+
+function renderProviderCard(provider) {
+  const isConfigured = ["configured", "reachable", "running", "connected"].includes(provider.status);
+  const card = document.createElement("article");
+  card.className = `provider-card${isConfigured ? " provider-card-active" : ""}`;
+  card.dataset.provider = provider.provider_id;
+  card.dataset.kind = provider.kind || "remote";
+  card.dataset.configured = isConfigured ? "true" : "false";
+
+  const title = document.createElement("div");
+  title.className = "provider-title";
+  const name = document.createElement("strong");
+  name.textContent = provider.display_name || provider.provider_id;
+
+  const pill = document.createElement("span");
+  pill.className = `status-pill ${statusClass(provider.status)}`;
+  pill.textContent = provider.label;
+  title.append(name, pill);
+
+  const meta = document.createElement("div");
+  meta.className = "provider-meta";
+  const configurationKeys = Array.isArray(provider.configuration_keys)
+    ? provider.configuration_keys
+    : [];
+  const missingConfigurationKeys = Array.isArray(
+    provider.missing_configuration_keys,
+  )
+    ? provider.missing_configuration_keys
+    : [];
+  meta.textContent = configurationKeys.join(" + ");
+
+  const result = document.createElement("div");
+  result.className = "provider-check-result";
+  result.dataset.providerCheckResult = provider.provider_id;
+  result.setAttribute("aria-live", "polite");
+  result.hidden = true;
+
+  const actions = document.createElement("div");
+  actions.className = "provider-actions";
+
+  const portalUrl = PROVIDER_API_PORTALS[provider.provider_id];
+  if (portalUrl) {
+    const apiLink = document.createElement("a");
+    apiLink.className = "provider-api-shortcut";
+    apiLink.href = portalUrl;
+    apiLink.target = "_blank";
+    apiLink.rel = "noopener noreferrer";
+    apiLink.innerHTML = "🔑 Obtener API Key ↗";
+    apiLink.title = `Abrir portal oficial para generar clave de ${provider.display_name || provider.provider_id}`;
+    actions.appendChild(apiLink);
+  }
+
+  if (configurationKeys.length) {
+    const configuring = missingConfigurationKeys.length > 0;
+    actions.appendChild(
+      providerActionButton(configuring ? "Configure" : "Edit", () =>
+        navigateToProviderConfiguration(provider, configuring),
+      ),
+    );
+  }
+
+  if (missingConfigurationKeys.length === 0) {
+    const button = providerActionButton(
+      provider.kind === "local" ? "Test" : "Refresh models",
+      () => testProvider(provider.provider_id, button),
+      "secondary-button",
+    );
+    actions.appendChild(button);
+  }
+
+  card.append(title, meta, result, actions);
+  return card;
+}
+
+let activeProviderFilter = "all";
+let activeProviderSearch = "";
+
+function applyProviderFilters() {
+  const q = activeProviderSearch.trim().toLowerCase();
+  const filter = activeProviderFilter;
+
+  const activeSec = byId("activeProvidersSection");
+  const cloudSec = byId("cloudProvidersSection");
+  const localSec = byId("localProvidersSection");
+  const connSec = byId("connectedAccountsSection");
+
+  if (activeSec) activeSec.hidden = filter === "cloud" || filter === "local";
+  if (cloudSec) cloudSec.hidden = filter === "active" || filter === "local";
+  if (localSec) localSec.hidden = filter === "active" || filter === "cloud";
+  if (connSec && connSec.dataset.empty !== "true") {
+    connSec.hidden = filter === "active" || filter === "local";
+  }
+
+  document.querySelectorAll(".provider-grid .provider-card").forEach((card) => {
+    if (!q) {
+      card.style.display = "";
+      return;
+    }
+    const text = (card.textContent || "").toLowerCase();
+    const provId = (card.dataset.provider || "").toLowerCase();
+    const match = text.includes(q) || provId.includes(q);
+    card.style.display = match ? "" : "none";
+  });
+}
+
 function renderProviders(providerStatus) {
-  const grid = byId("providerGrid");
+  const activeGrid = byId("activeProviderGrid");
+  const cloudGrid = byId("cloudProviderGrid");
+  const localGrid = byId("localProviderGrid");
   const connectedGrid = byId("connectedAccountGrid");
-  grid.innerHTML = "";
-  connectedGrid.innerHTML = "";
+  const fallbackGrid = byId("providerGrid");
+
+  if (activeGrid) activeGrid.innerHTML = "";
+  if (cloudGrid) cloudGrid.innerHTML = "";
+  if (localGrid) localGrid.innerHTML = "";
+  if (connectedGrid) connectedGrid.innerHTML = "";
+  if (fallbackGrid) fallbackGrid.innerHTML = "";
+
   const connected = providerStatus.filter(
     (provider) => provider.kind === "connected_account",
   );
-  byId("connectedAccountsSection").hidden = connected.length === 0;
-  providerStatus.forEach((provider) => {
-    if (provider.kind === "connected_account") {
+  const connSec = byId("connectedAccountsSection");
+  if (connSec) {
+    connSec.hidden = connected.length === 0;
+    connSec.dataset.empty = connected.length === 0 ? "true" : "false";
+  }
+  connected.forEach((provider) => {
+    if (connectedGrid) {
       connectedGrid.appendChild(renderConnectedAccountCard(provider));
-      return;
     }
-    const card = document.createElement("article");
-    card.className = "provider-card";
-    card.dataset.provider = provider.provider_id;
-
-    const title = document.createElement("div");
-    title.className = "provider-title";
-    const name = document.createElement("strong");
-    name.textContent = provider.display_name || provider.provider_id;
-
-    const pill = document.createElement("span");
-    pill.className = `status-pill ${statusClass(provider.status)}`;
-    pill.textContent = provider.label;
-    title.append(name, pill);
-
-    const meta = document.createElement("div");
-    meta.className = "provider-meta";
-    const configurationKeys = Array.isArray(provider.configuration_keys)
-      ? provider.configuration_keys
-      : [];
-    const missingConfigurationKeys = Array.isArray(
-      provider.missing_configuration_keys,
-    )
-      ? provider.missing_configuration_keys
-      : [];
-    meta.textContent = configurationKeys.join(" + ");
-
-    const result = document.createElement("div");
-    result.className = "provider-check-result";
-    result.dataset.providerCheckResult = provider.provider_id;
-    result.setAttribute("aria-live", "polite");
-    result.hidden = true;
-
-    const actions = document.createElement("div");
-    actions.className = "provider-actions";
-    if (configurationKeys.length) {
-      const configuring = missingConfigurationKeys.length > 0;
-      actions.appendChild(
-        providerActionButton(configuring ? "Configure" : "Edit", () =>
-          navigateToProviderConfiguration(provider, configuring),
-        ),
-      );
-    }
-
-    if (missingConfigurationKeys.length === 0) {
-      const button = providerActionButton(
-        provider.kind === "local" ? "Test" : "Refresh models",
-        () => testProvider(provider.provider_id, button),
-        "secondary-button",
-      );
-      actions.appendChild(button);
-    }
-
-    card.append(title, meta, result, actions);
-    grid.appendChild(card);
   });
+
+  const nonConnected = providerStatus.filter(
+    (provider) => provider.kind !== "connected_account",
+  );
+
+  const isConfigured = (p) =>
+    ["configured", "reachable", "running", "connected"].includes(p.status);
+
+  // Partition and sort providers
+  const activeList = sortProviders(nonConnected.filter(isConfigured));
+  const cloudList = sortProviders(nonConnected.filter((p) => p.kind === "remote"));
+  const localList = sortProviders(nonConnected.filter((p) => p.kind === "local"));
+  const allSorted = sortProviders(nonConnected);
+
+  // Update Badges and Counts
+  const totalCountEl = byId("totalProvidersCount");
+  const activeCountEl = byId("activeFilterCount");
+  const activeBadge = byId("activeCountBadge");
+  const cloudBadge = byId("cloudCountBadge");
+  const localBadge = byId("localCountBadge");
+
+  if (totalCountEl) totalCountEl.textContent = nonConnected.length;
+  if (activeCountEl) activeCountEl.textContent = activeList.length;
+  if (activeBadge) {
+    activeBadge.textContent = `${activeList.length} Activo${activeList.length === 1 ? "" : "s"}`;
+  }
+  if (cloudBadge) cloudBadge.textContent = `${cloudList.length} Proveedores`;
+  if (localBadge) localBadge.textContent = `${localList.length} Motores`;
+
+  // Render Active Rack
+  if (activeGrid) {
+    if (activeList.length === 0) {
+      const emptyNote = document.createElement("div");
+      emptyNote.className = "empty-rack-msg";
+      emptyNote.textContent = "⚡ Aún no has configurado ningún proveedor. Elige uno de los proveedores Cloud o Locales a continuación para activarlo con tu API Key.";
+      activeGrid.appendChild(emptyNote);
+    } else {
+      activeList.forEach((p) => activeGrid.appendChild(renderProviderCard(p)));
+    }
+  }
+
+  // Render Cloud Grid
+  if (cloudGrid) {
+    cloudList.forEach((p) => cloudGrid.appendChild(renderProviderCard(p)));
+  }
+
+  // Render Local Grid
+  if (localGrid) {
+    localList.forEach((p) => localGrid.appendChild(renderProviderCard(p)));
+  }
+
+  // Render fallback grid for tests or query selectors
+  if (fallbackGrid) {
+    allSorted.forEach((p) => fallbackGrid.appendChild(renderProviderCard(p)));
+  }
+
+  // Bind filter pills & search box
+  const searchInput = byId("providerSearchInput");
+  if (searchInput && !searchInput.dataset.bound) {
+    searchInput.dataset.bound = "true";
+    searchInput.addEventListener("input", (e) => {
+      activeProviderSearch = e.target.value;
+      applyProviderFilters();
+    });
+  }
+
+  const filterContainer = byId("providerFilterPills");
+  if (filterContainer && !filterContainer.dataset.bound) {
+    filterContainer.dataset.bound = "true";
+    filterContainer.querySelectorAll(".filter-pill").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        filterContainer.querySelectorAll(".filter-pill").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        activeProviderFilter = btn.dataset.filter || "all";
+        applyProviderFilters();
+      });
+    });
+  }
+
+  applyProviderFilters();
 }
 
 function providerActionButton(label, action, className = "test-button") {
@@ -256,24 +487,130 @@ function providerActionButton(label, action, className = "test-button") {
   return button;
 }
 
-function navigateToProviderConfiguration(provider, configuring) {
-  const keys = configuring
-    ? provider.missing_configuration_keys
-    : provider.configuration_keys;
-  const fieldKey = Array.isArray(keys) ? keys[0] : null;
-  const input = fieldKey ? byId(`field-${fieldKey}`) : null;
-  if (!input) {
-    showMessage("Provider configuration field is unavailable.", "error");
+function openDirectProviderConfigModal(provider, configuring = true) {
+  const modal = byId("apiKeyModal");
+  if (!modal) {
     return;
   }
-  const reducedMotion = window.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  ).matches;
-  input.scrollIntoView({
-    behavior: reducedMotion ? "instant" : "smooth",
-    block: "center",
-  });
-  input.focus({ preventScroll: true });
+
+  const titleEl = byId("modalProviderTitle");
+  const subtitleEl = byId("modalProviderSubtitle");
+  const portalLinkEl = byId("modalPortalLink");
+  const inputEl = byId("modalApiKeyInput");
+  const hintEl = byId("modalFieldHint");
+  const statusMsgEl = byId("modalStatusMsg");
+  const saveBtn = byId("modalSaveBtn");
+  const cancelBtn = byId("modalCancelBtn");
+  const closeBtn = byId("modalCloseBtn");
+  const toggleBtn = byId("modalToggleVisibilityBtn");
+
+  const displayName = provider.display_name || provider.provider_id;
+  titleEl.textContent = `Configurar ${displayName}`;
+  subtitleEl.textContent = `Pega aquí directamente tu API Key oficial para ${displayName}.`;
+
+  const portalUrl = PROVIDER_API_PORTALS[provider.provider_id] || "https://google.com";
+  portalLinkEl.href = portalUrl;
+  portalLinkEl.textContent = `🔑 Obtener API Key Oficial de ${displayName} ↗`;
+
+  const keys = Array.isArray(provider.configuration_keys) && provider.configuration_keys.length > 0
+    ? provider.configuration_keys
+    : (Array.isArray(provider.missing_configuration_keys) ? provider.missing_configuration_keys : []);
+  const fieldKey = keys.length > 0 ? keys[0] : `${provider.provider_id.toUpperCase()}_API_KEY`;
+
+  hintEl.textContent = `Variable en .env: ${fieldKey}`;
+  inputEl.value = "";
+  inputEl.placeholder = `Pega aquí tu API key de ${displayName}...`;
+  inputEl.type = "password";
+  toggleBtn.textContent = "👁️";
+
+  statusMsgEl.hidden = true;
+  statusMsgEl.className = "modal-status-msg";
+  statusMsgEl.textContent = "";
+  saveBtn.disabled = false;
+  saveBtn.textContent = "Guardar y Activar Clave";
+
+  const closeModal = () => {
+    modal.hidden = true;
+  };
+
+  closeBtn.onclick = closeModal;
+  cancelBtn.onclick = closeModal;
+  modal.onclick = (e) => {
+    if (e.target === modal) closeModal();
+  };
+
+  toggleBtn.onclick = () => {
+    if (inputEl.type === "password") {
+      inputEl.type = "text";
+      toggleBtn.textContent = "🔒";
+    } else {
+      inputEl.type = "password";
+      toggleBtn.textContent = "👁️";
+    }
+  };
+
+  saveBtn.onclick = async () => {
+    const val = inputEl.value.trim();
+    if (!val) {
+      statusMsgEl.hidden = false;
+      statusMsgEl.className = "modal-status-msg status-error";
+      statusMsgEl.textContent = "⚠️ Por favor ingresa una API Key antes de guardar.";
+      inputEl.focus();
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = "Guardando...";
+    statusMsgEl.hidden = false;
+    statusMsgEl.className = "modal-status-msg status-loading";
+    statusMsgEl.textContent = `Guardando ${fieldKey} y verificando conexión con ${displayName}...`;
+
+    try {
+      const applyPayload = { values: { [fieldKey]: val } };
+      const applyRes = await api("/admin/api/config/apply", {
+        method: "POST",
+        body: JSON.stringify(applyPayload),
+      });
+
+      if (!applyRes.valid) {
+        throw new Error(applyRes.errors?.join(", ") || "Error de validación");
+      }
+
+      // Test the provider
+      const testRes = await api(`/admin/api/providers/${provider.provider_id}/test`, {
+        method: "POST",
+      });
+
+      statusMsgEl.className = "modal-status-msg status-success";
+      const modelCount = testRes.models ? testRes.models.length : 0;
+      statusMsgEl.textContent = `✅ ¡API Key guardada en .env y activada con éxito! (${modelCount} modelos disponibles)`;
+
+      saveBtn.textContent = "¡Guardado!";
+
+      setTimeout(async () => {
+        closeModal();
+        await load();
+        if (window.PipelineDashboard) {
+          window.PipelineDashboard.render();
+        }
+      }, 1400);
+
+    } catch (err) {
+      statusMsgEl.className = "modal-status-msg status-error";
+      statusMsgEl.textContent = `❌ Error al aplicar API key: ${err.message || err}`;
+      saveBtn.disabled = false;
+      saveBtn.textContent = "Reintentar Guardar";
+    }
+  };
+
+  modal.hidden = false;
+  setTimeout(() => inputEl.focus(), 60);
+}
+
+window.openDirectProviderConfigModal = openDirectProviderConfigModal;
+
+function navigateToProviderConfiguration(provider, configuring) {
+  openDirectProviderConfigModal(provider, configuring);
 }
 
 function renderConnectedAccountCard(provider, status = provider) {
@@ -512,7 +849,8 @@ function updateProviderCheckResult(providerId, status, message) {
 function renderSections(sections, fields) {
   state.modelComboboxes.clear();
   VIEW_GROUPS.forEach((view) => {
-    byId(view.containerId).innerHTML = "";
+    const el = byId(view.containerId);
+    if (el) el.innerHTML = "";
   });
 
   const sectionById = new Map(sections.map((section) => [section.id, section]));
@@ -525,6 +863,7 @@ function renderSections(sections, fields) {
 
   VIEW_GROUPS.forEach((view) => {
     const container = byId(view.containerId);
+    if (!container) return;
     view.sections.forEach((sectionId) => {
       const section = sectionById.get(sectionId);
       const sectionFields = bySection.get(sectionId) || [];
@@ -541,7 +880,7 @@ function renderSections(sections, fields) {
         const refreshButton = document.createElement("button");
         refreshButton.type = "button";
         refreshButton.className = "secondary-button";
-        refreshButton.textContent = "Refresh models";
+        refreshButton.textContent = "🔄 Actualizar Catálogo de Modelos";
         refreshButton.addEventListener("click", () => refreshModelOptions(refreshButton));
         heading.appendChild(refreshButton);
       }
@@ -558,10 +897,10 @@ function renderSections(sections, fields) {
         const toggle = document.createElement("button");
         toggle.type = "button";
         toggle.className = "ghost-button advanced-toggle";
-        toggle.textContent = "Show advanced";
+        toggle.textContent = "⚙️ Mostrar Opciones Avanzadas";
         toggle.addEventListener("click", () => {
           const showing = sectionEl.classList.toggle("show-advanced");
-          toggle.textContent = showing ? "Hide advanced" : "Show advanced";
+          toggle.textContent = showing ? "⚙️ Ocultar Opciones Avanzadas" : "⚙️ Mostrar Opciones Avanzadas";
         });
         sectionEl.appendChild(toggle);
       }
@@ -569,6 +908,181 @@ function renderSections(sections, fields) {
       container.appendChild(sectionEl);
     });
   });
+}
+
+function getModelSpecsLocal(modelSlug) {
+  const m = (modelSlug || "").toLowerCase();
+  let context = "128k";
+  const caps = [];
+  
+  if (m.includes("gemini")) {
+    context = "1M - 2M";
+    caps.push("👁️ Visión", "🛠️ Tools", "🧠 Thinking");
+  } else if (m.includes("claude-3-7") || m.includes("claude-3.7")) {
+    context = "200k";
+    caps.push("👁️ Visión", "🛠️ Tools", "🧠 Thinking Híbrido");
+  } else if (m.includes("claude-3-5") || m.includes("sonnet")) {
+    context = "200k";
+    caps.push("👁️ Visión", "🛠️ Tools", "⚡ Alta Velocidad");
+  } else if (m.includes("deepseek-r1") || m.includes("r1")) {
+    context = "64k - 128k";
+    caps.push("🧠 Razonamiento R1", "🛠️ Tools");
+  } else if (m.includes("llama-3.3") || m.includes("llama-3.1") || m.includes("nemotron")) {
+    context = "128k";
+    caps.push("🛠️ Tools", "⚡ Inferencia Rápida");
+  } else if (m.includes("gpt-4o") || m.includes("omni")) {
+    context = "128k";
+    caps.push("👁️ Visión", "🎙️ Audio", "🛠️ Tools");
+  } else {
+    context = "128k";
+    caps.push("🛠️ Tools");
+  }
+  return { context, caps };
+}
+
+function renderModelRouteHealthCard(field, input) {
+  const card = document.createElement("div");
+  card.className = "model-route-health-card";
+  card.dataset.routeKey = field.key;
+
+  const updateCard = () => {
+    const val = input.value.trim();
+    const isOptional = field.type === "optional_model";
+    const isInherited = isOptional && (!val || val.toLowerCase() === "none");
+    
+    let effectiveVal = val;
+    if (isInherited) {
+      const defaultInput = byId("field-MODEL");
+      effectiveVal = defaultInput ? defaultInput.value.trim() : (state.fields?.get("MODEL")?.value || "");
+    }
+
+    const parts = (effectiveVal || "").split("/");
+    const providerId = parts[0] || "";
+    const modelName = parts.slice(1).join("/") || effectiveVal;
+
+    const providerObj = (state.config?.provider_status || []).find(
+      (p) => p.provider_id === providerId
+    );
+    const isConfigured = providerObj && ["configured", "reachable", "running", "connected"].includes(providerObj.status);
+    const isMissingKey = providerObj && ["missing_key", "missing_config", "missing_url"].includes(providerObj.status);
+
+    card.innerHTML = "";
+    
+    const header = document.createElement("div");
+    header.className = "route-health-header";
+
+    const badgeWrap = document.createElement("div");
+    badgeWrap.className = "route-health-badge-wrap";
+
+    const provTag = document.createElement("span");
+    provTag.className = "route-provider-tag";
+    provTag.textContent = providerObj ? (providerObj.display_name || providerId) : (providerId || "Enrutador FCC");
+    badgeWrap.appendChild(provTag);
+
+    const statusBadge = document.createElement("span");
+    if (isInherited) {
+      card.className = "model-route-health-card status-warn";
+      statusBadge.className = "route-health-status warn";
+      statusBadge.textContent = "🟡 Hereda Modelo Principal";
+    } else if (isConfigured) {
+      card.className = "model-route-health-card status-ok";
+      statusBadge.className = "route-health-status ok";
+      statusBadge.textContent = "🟢 Operativo en Enrutador";
+    } else if (isMissingKey) {
+      card.className = "model-route-health-card status-error";
+      statusBadge.className = "route-health-status error";
+      statusBadge.textContent = "🔴 Falta API Key";
+    } else {
+      card.className = "model-route-health-card status-ok";
+      statusBadge.className = "route-health-status ok";
+      statusBadge.textContent = "⚡ Ruta Configurada";
+    }
+    badgeWrap.appendChild(statusBadge);
+    header.appendChild(badgeWrap);
+
+    const specs = getModelSpecsLocal(modelName || effectiveVal);
+    const chipsWrap = document.createElement("div");
+    chipsWrap.className = "route-specs-chips";
+
+    const ctxChip = document.createElement("span");
+    ctxChip.className = "route-spec-chip context-chip";
+    ctxChip.textContent = `🪟 ${specs.context}`;
+    chipsWrap.appendChild(ctxChip);
+
+    specs.caps.forEach((cap) => {
+      const capChip = document.createElement("span");
+      capChip.className = "route-spec-chip active-cap";
+      capChip.textContent = cap;
+      chipsWrap.appendChild(capChip);
+    });
+    header.appendChild(chipsWrap);
+    card.appendChild(header);
+
+    const actionRow = document.createElement("div");
+    actionRow.className = "route-test-action-wrap";
+
+    const testBtn = document.createElement("button");
+    testBtn.type = "button";
+    testBtn.className = "btn-test-route";
+    testBtn.innerHTML = "⚡ Probar Conexión en Vivo";
+
+    const resultMsg = document.createElement("span");
+    resultMsg.className = "route-test-result";
+
+    testBtn.addEventListener("click", async () => {
+      testBtn.disabled = true;
+      testBtn.innerHTML = "⏳ Verificando...";
+      resultMsg.className = "route-test-result";
+      resultMsg.textContent = "";
+      const startTime = performance.now();
+      try {
+        if (providerId) {
+          const testRes = await api(`/admin/api/providers/${providerId}/test`, {
+            method: "POST",
+            body: "{}",
+          });
+          const elapsed = Math.round(performance.now() - startTime);
+          if (testRes.ok) {
+            resultMsg.className = "route-test-result ok";
+            resultMsg.textContent = `🟢 Conexión OK · ${elapsed}ms (${testRes.models?.length || 0} modelos disponibles)`;
+          } else {
+            resultMsg.className = "route-test-result error";
+            resultMsg.textContent = `🔴 Error: ${testRes.message || "Fallo de respuesta"}`;
+          }
+        } else {
+          resultMsg.className = "route-test-result ok";
+          resultMsg.textContent = "🟢 Enrutador listo";
+        }
+      } catch (err) {
+        resultMsg.className = "route-test-result error";
+        resultMsg.textContent = `❌ ${err.message || "Error al conectar"}`;
+      } finally {
+        testBtn.disabled = false;
+        testBtn.innerHTML = "⚡ Probar Conexión en Vivo";
+      }
+    });
+
+    actionRow.appendChild(testBtn);
+
+    if (isMissingKey && providerObj) {
+      const configKeyBtn = document.createElement("button");
+      configKeyBtn.type = "button";
+      configKeyBtn.className = "btn-config-key-inline";
+      configKeyBtn.textContent = `🔑 Configurar Clave de ${providerObj.display_name || providerId}`;
+      configKeyBtn.addEventListener("click", () => {
+        openDirectProviderConfigModal(providerObj, true);
+      });
+      actionRow.appendChild(configKeyBtn);
+    }
+
+    actionRow.appendChild(resultMsg);
+    card.appendChild(actionRow);
+  };
+
+  input.addEventListener("input", updateCard);
+  input.addEventListener("change", updateCard);
+  setTimeout(updateCard, 10);
+  return card;
 }
 
 function renderField(field) {
@@ -623,16 +1137,22 @@ function renderField(field) {
     control = editor.element;
   }
   wrapper.append(label, control);
+
+  if (["MODEL", "MODEL_SONNET", "MODEL_OPUS", "MODEL_HAIKU", "MODEL_FABLE"].includes(field.key)) {
+    const healthCard = renderModelRouteHealthCard(field, input);
+    wrapper.appendChild(healthCard);
+  }
+
   if (field.secret && field.nullable && field.configured && !field.locked) {
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "ghost-button secret-remove";
-    removeButton.textContent = "Remove";
+    removeButton.textContent = "🗑 Quitar";
     removeButton.addEventListener("click", () => {
       const removing = input.dataset.remove !== "true";
       input.dataset.remove = removing ? "true" : "false";
       input.readOnly = removing;
-      removeButton.textContent = removing ? "Undo removal" : "Remove";
+      removeButton.textContent = removing ? "↩ Deshacer eliminación" : "🗑 Quitar";
       updateDirtyState();
     });
     wrapper.appendChild(removeButton);
@@ -690,8 +1210,8 @@ function inputForField(field) {
   if (field.type === "secret") {
     input.type = "password";
     input.placeholder = field.configured
-      ? "Configured - enter a new value to replace"
-      : "Not configured";
+      ? "Configurado (introduce un nuevo valor para reemplazar)"
+      : "No configurado";
     input.value = "";
     input.autocomplete = "off";
   } else {
@@ -734,19 +1254,19 @@ class ModelListEditor {
     this.addInput.id = this.inputId;
     this.addInput.type = "text";
     this.addInput.autocomplete = "off";
-    this.addInput.placeholder = "provider/model";
+    this.addInput.placeholder = "proveedor/modelo (ej: open_router/meta/llama-3.3-70b-instruct)";
     this.addInput.disabled = field.locked;
     const addCombobox = createModelCombobox(this.addInput, {
       ...field,
       key: `${field.key}-add`,
-      label: "fallback model",
+      label: "modelo de respaldo",
       type: "model",
     });
 
     this.addButton = document.createElement("button");
     this.addButton.type = "button";
     this.addButton.className = "secondary-button";
-    this.addButton.textContent = "Add";
+    this.addButton.textContent = "➕ Agregar Respaldo";
     this.addButton.disabled = field.locked;
     this.addButton.addEventListener("click", () => this.add());
     addRow.append(addCombobox.element, this.addButton);
@@ -760,11 +1280,11 @@ class ModelListEditor {
   add() {
     const value = this.addInput.value.trim();
     if (!value) {
-      showMessage("Enter a full provider/model fallback.", "error");
+      showMessage("Introduce un modelo de respaldo completo (ej: open_router/meta/llama-3.3-70b-instruct).", "error");
       return;
     }
     if (this.values.includes(value)) {
-      showMessage("That fallback model is already in the list.", "error");
+      showMessage("Ese modelo de respaldo ya está en la lista.", "error");
       return;
     }
     this.values.push(value);
@@ -800,7 +1320,7 @@ class ModelListEditor {
     if (this.values.length === 0) {
       const empty = document.createElement("div");
       empty.className = "model-list-empty";
-      empty.textContent = "No fallback models configured.";
+      empty.textContent = "No hay modelos de respaldo configurados. Agrega uno arriba para failover automático.";
       this.rows.appendChild(empty);
       return;
     }
@@ -813,15 +1333,15 @@ class ModelListEditor {
       model.className = "model-list-value";
       model.textContent = value;
 
-      const up = this.actionButton("Move up", `Move ${value} up`, () =>
+      const up = this.actionButton("⬆ Subir", `Subir ${value}`, () =>
         this.move(index, -1),
       );
       up.disabled = this.field.locked || index === 0;
-      const down = this.actionButton("Move down", `Move ${value} down`, () =>
+      const down = this.actionButton("⬇ Bajar", `Bajar ${value}`, () =>
         this.move(index, 1),
       );
       down.disabled = this.field.locked || index === this.values.length - 1;
-      const remove = this.actionButton("Remove", `Remove ${value}`, () =>
+      const remove = this.actionButton("🗑 Quitar", `Quitar ${value}`, () =>
         this.remove(index),
       );
       remove.disabled = this.field.locked;
@@ -884,7 +1404,7 @@ function changedValues() {
 function updateDirtyState() {
   const count = Object.keys(changedValues()).length;
   byId("dirtyState").textContent =
-    count === 0 ? "No changes" : `${count} unsaved change${count === 1 ? "" : "s"}`;
+    count === 0 ? "Sin cambios pendientes" : `${count} cambio${count === 1 ? "" : "s"} sin guardar`;
   byId("applyButton").disabled = count === 0;
 }
 
@@ -894,12 +1414,12 @@ async function apply() {
     body: JSON.stringify({ values: changedValues() }),
   });
   if (!result.applied) {
-    showMessage(result.errors.join("; "), "error");
+    showMessage(`Error: ${result.errors.join("; ")}`, "error");
     return;
   }
   const restart = result.restart || {};
   if (restart.required && restart.automatic) {
-    showMessage("Applied. Restarting server...", "ok");
+    showMessage("✅ Cambios guardados. Reiniciando el servidor Enrutador...", "ok");
     byId("applyButton").disabled = true;
     setTimeout(() => {
       window.location.href = restart.admin_url || "/admin";
@@ -910,8 +1430,8 @@ async function apply() {
   await load();
   showMessage(
     pending.length
-      ? `Applied. Restart fcc-server to use: ${pending.join(", ")}`
-      : "Applied",
+      ? `✅ Configuración aplicada. Reinicia fcc-server para activar: ${pending.join(", ")}`
+      : "✅ Configuración guardada y aplicada con éxito.",
     "ok",
   );
 }
@@ -924,19 +1444,19 @@ async function refreshLocalStatus() {
       updateProviderCheckResult(
         provider.provider_id,
         "ok",
-        `Reachable: ${provider.base_url}`,
+        `🟢 Conectado: ${provider.base_url}`,
       );
       return;
     }
     const detail = provider.message
       ? provider.message
       : provider.status_code
-        ? `${provider.base_url} returned HTTP ${provider.status_code}`
-        : "The local provider did not respond.";
+        ? `${provider.base_url} retornó HTTP ${provider.status_code}`
+        : "El proveedor local no respondió.";
     updateProviderCheckResult(
       provider.provider_id,
       "error",
-      `Unavailable: ${detail}`,
+      `🔴 No disponible: ${detail}`,
     );
   });
 }
@@ -944,8 +1464,8 @@ async function refreshLocalStatus() {
 async function testProvider(providerId, button) {
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = "Checking...";
-  updateProviderCheckResult(providerId, "checking", "Checking...");
+  button.textContent = "⏳ Verificando...";
+  updateProviderCheckResult(providerId, "checking", "⏳ Verificando...");
   try {
     const result = await api(`/admin/api/providers/${providerId}/test`, {
       method: "POST",
@@ -955,7 +1475,7 @@ async function testProvider(providerId, button) {
       updateProviderCheckResult(
         providerId,
         "ok",
-        `${result.models.length} models available`,
+        `🟢 ${result.models.length} modelos disponibles y listos`,
       );
       setModelOptions([
         ...state.modelOptions,
@@ -965,14 +1485,14 @@ async function testProvider(providerId, button) {
       updateProviderCheckResult(
         providerId,
         "error",
-        `Unavailable: ${result.message || "Provider check failed."}`,
+        `🔴 No disponible: ${result.message || "Fallo al verificar proveedor."}`,
       );
     }
   } catch {
     updateProviderCheckResult(
       providerId,
       "error",
-      "Provider check could not be completed.",
+      "🔴 No se pudo completar la verificación del proveedor.",
     );
   } finally {
     button.disabled = false;
@@ -1000,21 +1520,21 @@ async function loadModelOptions(refresh = false) {
 async function refreshModelOptions(button) {
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = "Refreshing";
+  button.textContent = "⏳ Actualizando...";
   try {
     const result = await loadModelOptions(true);
     const failedProviders = result.failed_providers || [];
     if (failedProviders.length) {
       const labels = failedProviders.map(providerDisplayName).join(", ");
       showMessage(
-        `${state.modelOptions.length} models available; could not refresh ${labels}`,
+        `Catálogo actualizado: ${state.modelOptions.length} modelos disponibles; no se pudo sincronizar con: ${labels}`,
         "warn",
       );
     } else {
-      showMessage(`${state.modelOptions.length} models available`, "ok");
+      showMessage(`✅ Catálogo actualizado: ${state.modelOptions.length} modelos disponibles y listos`, "ok");
     }
   } catch (error) {
-    showMessage(`Could not refresh models: ${error.message}`, "error");
+    showMessage(`Error al actualizar modelos: ${error.message}`, "error");
   } finally {
     button.disabled = false;
     button.textContent = original;
@@ -1037,6 +1557,30 @@ function setModelOptions(models) {
   });
 }
 
+async function updateModelTelemetryKpis() {
+  try {
+    const data = await api("/admin/api/telemetry");
+    const totalTokensEl = byId("kpiTotalTokens");
+    const tpmEl = byId("kpiTpm");
+    const cpmEl = byId("kpiCpm");
+    const latencyEl = byId("kpiLatency");
+    const activeModelEl = byId("kpiActiveModel");
+    const activeProviderEl = byId("kpiActiveProvider");
+
+    if (totalTokensEl) totalTokensEl.textContent = (data.total_tokens || 0).toLocaleString();
+    if (tpmEl) tpmEl.textContent = `${(data.tokens_per_minute || 0).toLocaleString()} TPM`;
+    if (cpmEl) cpmEl.textContent = `${data.requests_per_minute || 0} req/min`;
+    if (latencyEl) latencyEl.textContent = `${data.avg_latency_ms || 0} ms`;
+    if (activeModelEl) activeModelEl.textContent = data.current_model || "Por defecto";
+    if (activeProviderEl) {
+      const pObj = (state.config?.provider_status || []).find((p) => p.provider_id === data.current_provider);
+      activeProviderEl.textContent = pObj ? `Proveedor: ${pObj.display_name}` : `Proveedor: ${data.current_provider}`;
+    }
+  } catch {
+    // Telemetry updates quietly if offline
+  }
+}
+
 function showMessage(message, kind = "") {
   const area = byId("messageArea");
   area.textContent = message;
@@ -1056,6 +1600,12 @@ window.addEventListener("popstate", () => {
     : "providers";
   setActiveView(viewId, { scroll: false });
 });
+
+setInterval(() => {
+  if (state.activeView === "model_config") {
+    updateModelTelemetryKpis();
+  }
+}, 2500);
 
 load().catch((error) => {
   showMessage(error.message, "error");

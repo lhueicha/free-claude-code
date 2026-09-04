@@ -41,6 +41,7 @@ _ADMIN_ASSET_FILENAMES = frozenset(
         "chat_sessions.css",
         "chat_sessions.js",
         "model_combobox.js",
+        "pipeline.js",
     }
 )
 LOCAL_PROVIDER_PATHS = {
@@ -73,8 +74,18 @@ def _asset_path(filename: str) -> Path:
     return path
 
 
+_ASSET_MEDIA_TYPES = {
+    ".js": "text/javascript",
+    ".css": "text/css",
+    ".svg": "image/svg+xml",
+    ".html": "text/html",
+}
+
+
 def _asset_response(filename: str) -> FileResponse:
-    return FileResponse(_asset_path(filename))
+    path = _asset_path(filename)
+    media_type = _ASSET_MEDIA_TYPES.get(path.suffix.lower())
+    return FileResponse(path, media_type=media_type)
 
 
 def admin_page_response() -> HTMLResponse:

@@ -16,3 +16,9 @@ llama_cache
 .smoke-results
 /test-results/
 .vscode
+.env*
+*.txt
+scratch/
+Microsoft/
+evidencia_objetiva_*.json
+*.bak*

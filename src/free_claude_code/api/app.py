@@ -43,7 +43,7 @@ from .validation_log import summarize_request_validation_body
 
 def create_app(services: ApiServices) -> FastAPI:
     """Create the HTTP adapter around explicitly supplied runtime services."""
-    app = FastAPI(title="Claude Code Proxy", version=package_version())
+    app = FastAPI(title="Enrutador", version=package_version())
     app.state.services = services
     app.add_middleware(AdminNoStoreMiddleware)
     app.add_middleware(InferenceRequestLifetimeMiddleware)

@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="en">
+<html lang="es">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Free Claude Code Admin</title>
-    <link rel="icon" href="data:," />
+    <title>Enrutador · Control de Tokens y Telemetría</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22%3E<text y=%2226%22 font-size=%2226%22>⚡</text></svg>" />
     <link rel="stylesheet" href="/admin/assets/__FCC_VERSION__/admin.css" />
     <link rel="stylesheet" href="/admin/assets/__FCC_VERSION__/chat_sessions.css" />
   </head>
@@ -13,75 +13,290 @@
       <aside class="sidebar">
         <div class="brand">
           <a
-            class="brand-mark"
+            class="brand-link"
             href="https://github.com/Alishahryar1/free-claude-code"
             target="_blank"
             rel="noopener noreferrer"
             aria-label="Open Free Claude Code on GitHub"
           >
-            <img src="/admin/assets/__FCC_VERSION__/app-icon.svg" alt="" />
+            <img class="brand-logo" src="/admin/assets/__FCC_VERSION__/app-icon.svg" alt="" width="36" height="36" />
           </a>
           <div>
-            <h1>Free Claude Code</h1>
+            <h1>Enrutador</h1>
             <p>Server Control · v__FCC_VERSION__</p>
           </div>
         </div>
-        <nav id="sectionNav" class="section-nav" aria-label="Admin views"></nav>
+        <nav id="sectionNav" class="section-nav" aria-label="Vistas del Enrutador"></nav>
       </aside>
 
       <main class="main">
         <header class="topbar">
           <div>
-            <h2 id="pageTitle">Providers</h2>
+            <h2 id="pageTitle">Sistema de Tuberías de Tokens</h2>
           </div>
         </header>
 
         <div id="adminViews" class="admin-views">
-          <section id="view-providers" class="admin-view active" data-view="providers">
+          <!-- Vista 1: Sistema de Tuberías y Telemetría en Vivo -->
+          <section id="view-pipeline" class="admin-view active" data-view="pipeline">
+            <div id="pipelineRoot"></div>
+          </section>
+
+          <!-- Vista 2: Proveedores y Enlaces de API Keys -->
+          <section id="view-providers" class="admin-view" data-view="providers" hidden>
+            <div class="view-intro-card">
+              <div class="view-intro-icon">🔑</div>
+              <div class="view-intro-body">
+                <h3>Gestión y Enlace de Proveedores de Tokens</h3>
+                <p>Configura las API Keys de proveedores en la nube y conecta tus servidores locales. Los proveedores activos se agrupan automáticamente al inicio con resplandor activo y acceso directo a pruebas.</p>
+              </div>
+            </div>
+
+            <!-- Barra de Filtros Rápidos y Búsqueda -->
+            <div class="provider-filter-bar">
+              <div class="filter-pills" id="providerFilterPills">
+                <button type="button" class="filter-pill active" data-filter="all">⚡ Todos (<span id="totalProvidersCount">0</span>)</button>
+                <button type="button" class="filter-pill" data-filter="active">⭐ Solo Activos (<span id="activeFilterCount">0</span>)</button>
+                <button type="button" class="filter-pill" data-filter="cloud">☁️ Cloud / Nube</button>
+                <button type="button" class="filter-pill" data-filter="local">💻 Locales (Ollama/LM Studio)</button>
+              </div>
+              <div class="provider-search-box">
+                <input
+                  type="text"
+                  id="providerSearchInput"
+                  class="provider-search-input"
+                  placeholder="🔍 Buscar proveedor (ej: Gemini, Nvidia, Groq, Ollama)..."
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+            </div>
+
+            <!-- Rack Superior: Proveedores Activos y Configurados -->
+            <section id="activeProvidersSection" class="provider-strip active-rack-strip" aria-label="Proveedores Activos">
+              <div class="strip-header">
+                <div>
+                  <h3>⭐ Proveedores Activos & Listos para Enrutar</h3>
+                  <p>Credenciales validadas y activas. Tus peticiones se enrutarán a través de estos proveedores de inmediato.</p>
+                </div>
+                <span id="activeCountBadge" class="status-pill ok">0 Activos</span>
+              </div>
+              <div id="activeProviderGrid" class="provider-grid"></div>
+            </section>
+
+            <!-- Sección: Proveedores Cloud / Nube -->
+            <section id="cloudProvidersSection" class="provider-strip" aria-label="Proveedores Cloud">
+              <div class="strip-header">
+                <div>
+                  <h3>☁️ Proveedores Cloud (APIs en la Nube)</h3>
+                  <p>Servicios de inferencia remota (NVIDIA NIM, Google Gemini, OpenRouter, Groq, DeepSeek, xAI, etc.).</p>
+                </div>
+                <span id="cloudCountBadge" class="status-pill neutral">0 Proveedores</span>
+              </div>
+              <div id="cloudProviderGrid" class="provider-grid"></div>
+            </section>
+
+            <!-- Sección: Proveedores Locales -->
+            <section id="localProvidersSection" class="provider-strip" aria-label="Proveedores Locales">
+              <div class="strip-header">
+                <div>
+                  <h3>💻 Servidores Locales (En tu Computador)</h3>
+                  <p>Motores de inferencia locales ejecutándose en tu propia máquina (Ollama, LM Studio, Llama.cpp, vLLM).</p>
+                </div>
+                <span id="localCountBadge" class="status-pill neutral">0 Motores</span>
+              </div>
+              <div id="localProviderGrid" class="provider-grid"></div>
+            </section>
+
+            <!-- Sección: Cuentas Conectadas -->
             <section
               id="connectedAccountsSection"
               class="provider-strip"
-              aria-label="Connected accounts"
+              aria-label="Cuentas conectadas"
               hidden
             >
               <div class="strip-header">
                 <div>
-                  <h3>Connected accounts</h3>
-                  <p>Use an existing subscription without storing credentials in .env.</p>
+                  <h3>🔗 Cuentas Conectadas & Suscripciones</h3>
+                  <p>Usa suscripciones existentes sin almacenar credenciales en texto plano.</p>
                 </div>
               </div>
               <div id="connectedAccountGrid" class="provider-grid"></div>
             </section>
-            <section class="provider-strip" aria-label="Provider status">
-              <div class="strip-header">
-                <h3>Providers</h3>
-              </div>
-              <div id="providerGrid" class="provider-grid"></div>
-            </section>
+
+            <!-- Fallback grid para compatibilidad -->
+            <div id="providerGrid" class="provider-grid" style="display: none;"></div>
+
             <div
               id="providersSections"
               class="form-sections"
-              aria-label="Provider configuration"
+              aria-label="Configuración de proveedores"
             ></div>
           </section>
 
+          <!-- Vista 3: Configuración de Modelos -->
           <section id="view-model_config" class="admin-view" data-view="model_config" hidden>
+            <div class="view-intro-card">
+              <div class="view-intro-icon">🧠</div>
+              <div class="view-intro-body">
+                <h3>Asignación de Modelos & Rutas Inteligentes</h3>
+                <p>Define qué Inteligencia Artificial resuelve cada tipo de tarea. Solo el Enrutador centraliza todas las conexiones y almacena los datos de telemetría. Configura modelos potentes (como Sonnet o Llama 70B) para código complejo y modelos rápidos para tareas cotidianas, además de razonamiento profundo (Thinking) y herramientas de búsqueda web.</p>
+                <div class="intro-badges">
+                  <span class="intro-pill">🎯 Modelo Principal (Chat & Código)</span>
+                  <span class="intro-pill">💭 Razonamiento Profundo (Thinking)</span>
+                  <span class="intro-pill">🌐 Búsqueda Web en Vivo</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Panel Central de Telemetría y Contabilización de Tokens del Enrutador -->
+            <div class="model-telemetry-dashboard" id="modelTelemetryDashboard">
+              <div class="model-telemetry-card">
+                <div class="telemetry-icon">📊</div>
+                <div class="telemetry-data">
+                  <span class="telemetry-label">Tokens Totales (Enrutador)</span>
+                  <strong class="telemetry-value" id="kpiTotalTokens">0</strong>
+                  <small class="telemetry-hint">Tokens procesados globalmente</small>
+                </div>
+              </div>
+              <div class="model-telemetry-card">
+                <div class="telemetry-icon">⚡</div>
+                <div class="telemetry-data">
+                  <span class="telemetry-label">Velocidad (TPM)</span>
+                  <strong class="telemetry-value" id="kpiTpm">0 TPM</strong>
+                  <small class="telemetry-hint">Tokens por minuto en vivo</small>
+                </div>
+              </div>
+              <div class="model-telemetry-card">
+                <div class="telemetry-icon">📈</div>
+                <div class="telemetry-data">
+                  <span class="telemetry-label">Peticiones (CPM)</span>
+                  <strong class="telemetry-value" id="kpiCpm">0 req/min</strong>
+                  <small class="telemetry-hint">Peticiones activas por min</small>
+                </div>
+              </div>
+              <div class="model-telemetry-card">
+                <div class="telemetry-icon">⏱️</div>
+                <div class="telemetry-data">
+                  <span class="telemetry-label">Latencia Media</span>
+                  <strong class="telemetry-value" id="kpiLatency">0 ms</strong>
+                  <small class="telemetry-hint">Tiempo de respuesta medio</small>
+                </div>
+              </div>
+              <div class="model-telemetry-card highlight-route">
+                <div class="telemetry-icon">🎯</div>
+                <div class="telemetry-data">
+                  <span class="telemetry-label">Ruta Activa del Enrutador</span>
+                  <strong class="telemetry-value" id="kpiActiveModel">Detectando...</strong>
+                  <small class="telemetry-hint" id="kpiActiveProvider">Proveedor activo</small>
+                </div>
+              </div>
+            </div>
+
             <div
               id="modelConfigSections"
               class="form-sections"
-              aria-label="Model configuration"
+              aria-label="Configuración de modelos"
             ></div>
           </section>
 
+          <!-- Vista 4: Guía de Integración Hermes & ChatGPT Desktop -->
+          <section id="view-integrations" class="admin-view" data-view="integrations" hidden>
+            <div class="view-intro-card">
+              <div class="view-intro-icon">🔌</div>
+              <div class="view-intro-body">
+                <h3>Conexión de Aplicaciones & Clientes Externos</h3>
+                <p>Apunta aplicaciones como ChatGPT Desktop, Hermes Agent, Claude Code CLI o Cursor a tu Enrutador local en <code>http://localhost:8082/v1</code>. El Enrutador traducirá las peticiones y optimizará tus tokens automáticamente.</p>
+                <div class="intro-badges">
+                  <span class="intro-pill">🤖 Hermes Agent</span>
+                  <span class="intro-pill">💬 ChatGPT Desktop</span>
+                  <span class="intro-pill">⚡ Claude Code CLI</span>
+                </div>
+              </div>
+            </div>
+            <div class="form-sections">
+              <section class="form-section">
+                <div class="section-header">
+                  <h3>🤖 Conexión con Hermes Agent</h3>
+                  <p>Enchufa Hermes al enrutador en un solo paso.</p>
+                </div>
+                <div class="section-body" style="padding:16px;background:rgba(255,255,255,0.03);border-radius:8px;">
+                  <p style="margin-bottom:10px;">Hermes utiliza el endpoint estándar de OpenAI provisto por Enrutador en <code>http://localhost:8082/v1</code>:</p>
+                  <pre style="background:#0f172a;padding:12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);color:#38bdf8;font-family:monospace;overflow-x:auto;">
+# Opción 1: Ejecución con el lanzador optimizado
+fcc-hermes
+
+# Opción 2: Variable de entorno directa en terminal
+$env:OPENAI_BASE_URL="http://localhost:8082/v1"
+$env:OPENAI_API_KEY="enrutador-key"
+hermes chat -m meta/llama-3.3-70b-instruct</pre>
+                </div>
+              </section>
+
+              <section class="form-section">
+                <div class="section-header">
+                  <h3>💬 Conexión con ChatGPT Desktop</h3>
+                  <p>Apunta ChatGPT Desktop o cualquier cliente OpenAI al Enrutador local.</p>
+                </div>
+                <div class="section-body" style="padding:16px;background:rgba(255,255,255,0.03);border-radius:8px;">
+                  <p style="margin-bottom:10px;">En la configuración de ChatGPT Desktop o cliente OpenAI:</p>
+                  <ul style="margin-left:20px;margin-bottom:12px;color:#cbd5e1;line-height:1.6;">
+                    <li><strong>Base URL:</strong> <code>http://localhost:8082/v1</code></li>
+                    <li><strong>API Key:</strong> <code>enrutador-local</code> (cualquier valor de texto)</li>
+                    <li><strong>Endpoint utilizado:</strong> <code>POST /v1/chat/completions</code> (soporta streaming SSE)</li>
+                  </ul>
+                  <pre style="background:#0f172a;padding:12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);color:#38bdf8;font-family:monospace;overflow-x:auto;">
+# Prueba directa desde PowerShell / cURL:
+curl -X POST http://localhost:8082/v1/chat/completions `
+  -H "Content-Type: application/json" `
+  -d '{"model":"claude-3-7-sonnet","messages":[{"role":"user","content":"¡Hola Enrutador!"}]}'</pre>
+                </div>
+              </section>
+
+              <section class="form-section">
+                <div class="section-header">
+                  <h3>⚡ Conexión con Claude Code CLI</h3>
+                  <p>Tu carril gratuito con más de 1.3 mil millones de tokens al mes.</p>
+                </div>
+                <div class="section-body" style="padding:16px;background:rgba(255,255,255,0.03);border-radius:8px;">
+                  <pre style="background:#0f172a;padding:12px;border-radius:6px;border:1px solid rgba(255,255,255,0.1);color:#38bdf8;font-family:monospace;overflow-x:auto;">
+# Abrir terminal con carril gratuito de Claude Code
+fcc-claude</pre>
+                </div>
+              </section>
+            </div>
+          </section>
+
+          <!-- Vista 5: Mensajería (Telegram/Discord) -->
           <section id="view-messaging" class="admin-view" data-view="messaging" hidden>
+            <div class="view-intro-card">
+              <div class="view-intro-icon">💬</div>
+              <div class="view-intro-body">
+                <h3>Bots de Mensajería & Canales de Voz</h3>
+                <p>Automatiza tus flujos de trabajo conectando bots interactivos en Telegram y Discord para interactuar con tus modelos de IA desde tu teléfono o grupos de chat, y habilita síntesis y reconocimiento de voz.</p>
+                <div class="intro-badges">
+                  <span class="intro-pill">📱 Bot de Telegram</span>
+                  <span class="intro-pill">🎮 Bot de Discord</span>
+                  <span class="intro-pill">🎙️ Reconocimiento & Síntesis de Voz</span>
+                </div>
+              </div>
+            </div>
             <div
               id="messagingSections"
               class="form-sections"
-              aria-label="Messaging configuration"
+              aria-label="Configuración de mensajería"
             ></div>
           </section>
 
+          <!-- Vista 6: Chat de Prueba Directo -->
           <section id="view-chat" class="admin-view" data-view="chat" hidden>
+            <div class="view-intro-card chat-intro-banner" style="margin-bottom: 12px;">
+              <div class="view-intro-icon">🧪</div>
+              <div class="view-intro-body">
+                <h3>Consola Interactiva de Chat en Vivo</h3>
+                <p>Prueba en tiempo real las respuestas de tus modelos configurados, streaming SSE y razonamiento antes de usarlos en tus agentes.</p>
+              </div>
+            </div>
             <div id="chatRoot" class="chat-root" aria-live="off"></div>
           </section>
         </div>
@@ -89,17 +304,64 @@
 
       <footer class="action-bar">
         <div class="action-meta">
-          <strong id="dirtyState">No changes</strong>
+          <strong id="dirtyState">Sin cambios pendientes</strong>
           <span id="configPath"></span>
         </div>
         <div id="messageArea" class="message-area"></div>
         <div class="action-buttons">
-          <button id="applyButton" class="primary-button" type="button" disabled>Apply</button>
+          <button id="applyButton" class="primary-button" type="button" disabled>Guardar y Aplicar</button>
         </div>
       </footer>
     </div>
+
+    <!-- Modal Directo para Configurar API Key -->
+    <div id="apiKeyModal" class="modal-backdrop" hidden>
+      <div class="modal-dialog">
+        <div class="modal-header">
+          <div class="modal-title-wrap">
+            <span class="modal-icon">⚡</span>
+            <h3 id="modalProviderTitle">Configurar Proveedor</h3>
+          </div>
+          <button id="modalCloseBtn" type="button" class="modal-close-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+          <p id="modalProviderSubtitle">Introduce tu clave API oficial para activar este proveedor inmediatamente.</p>
+          
+          <div class="modal-portal-banner">
+            <span>¿Aún no tienes tu clave?</span>
+            <a id="modalPortalLink" href="#" target="_blank" rel="noopener noreferrer" class="btn-portal-action">
+              🔑 Obtener API Key Oficial ↗
+            </a>
+          </div>
+
+          <div class="modal-field-group">
+            <label id="modalFieldLabel" for="modalApiKeyInput">API Key:</label>
+            <div class="modal-input-wrap">
+              <input
+                id="modalApiKeyInput"
+                type="password"
+                class="modal-text-input"
+                placeholder="Pega tu clave aquí (ej: nvapi-..., gsk_..., etc.)"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <button id="modalToggleVisibilityBtn" type="button" class="btn-toggle-vis" title="Mostrar/Ocultar clave">👁️</button>
+            </div>
+            <small id="modalFieldHint" class="modal-hint">Variable: NVIDIA_NIM_API_KEY</small>
+          </div>
+
+          <div id="modalStatusMsg" class="modal-status-msg" hidden></div>
+        </div>
+        <div class="modal-footer">
+          <button id="modalCancelBtn" type="button" class="btn-ghost">Cancelar</button>
+          <button id="modalSaveBtn" type="button" class="btn-glow">Guardar y Activar Clave</button>
+        </div>
+      </div>
+    </div>
+
     <script src="/admin/assets/__FCC_VERSION__/model_combobox.js"></script>
     <script src="/admin/assets/__FCC_VERSION__/chat_sessions.js"></script>
+    <script src="/admin/assets/__FCC_VERSION__/pipeline.js"></script>
     <script src="/admin/assets/__FCC_VERSION__/admin.js"></script>
   </body>
 </html>
